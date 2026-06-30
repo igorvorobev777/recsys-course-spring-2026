@@ -61,7 +61,7 @@ class Experiments:
     """
     A static container for all the existing experiments.
     """
-    HSTU_EMBEDDINGS = Experiment("HSTU_EMBEDDINGS", Split.HALF_HALF)
+    SASREC_HYBRID = Experiment("SASREC_HYBRID", Split.HALF_HALF)
 
     def __init__(self):
-        self.experiments = [Experiments.HSTU_EMBEDDINGS]
+        self.experiments = [Experiments.SASREC_HYBRID]

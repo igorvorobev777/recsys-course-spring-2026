@@ -16,7 +16,7 @@ from botify.recommenders.i2i import I2IRecommender
 from botify.recommenders.random import Random
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.sticky_artist import StickyArtist
-from botify.recommenders.embeddings_hstu import EmbeddingHSTURecommender
+from botify.recommenders.embedding_hybrid import EmbeddingHybridRecommender
 from botify.track import Catalog
 
 root = logging.getLogger()
@@ -30,9 +30,8 @@ tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
 artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
 listen_history_redis = Redis(app, config_prefix="REDIS_LISTEN_HISTORY")
 recommendations_lfm_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_LFM")
-recommendations_contextual_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
+recommendations_sasrec_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_SASREC")
 
-recommendations_hstu_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_HSTU")
 
 data_logger = DataLogger(app)
 atexit.register(data_logger.close)
@@ -46,21 +45,16 @@ sticky_artist_recommender = StickyArtist(tracks_redis, artists_redis, catalog)
 
 
 catalog.upload_recommendations(
-    recommendations_contextual_redis.connection,
+    recommendations_sasrec_redis.connection,
     "RECOMMENDATIONS_SASREC_FILE_PATH",
     key_object="item_id",
     key_recommendations="recommendations",
 )
 
-catalog.upload_recommendations(
-    recommendations_hstu_redis.connection,
-    "RECOMMENDATIONS_HSTU_FILE_PATH"
-)
-
 
 sasrec_i2i_recommender = I2IRecommender(
     listen_history_redis.connection,
-    recommendations_contextual_redis.connection,
+    recommendations_sasrec_redis.connection,
     random_recommender,
 )
 
@@ -70,13 +64,15 @@ lightfm_i2i_recommender = I2IRecommender(
     random_recommender,
 )
 
-embeddings_hstu_recommender = EmbeddingHSTURecommender(
+
+embedding_hybrid_recommender = EmbeddingHybridRecommender(
     tracks_redis,
     catalog,
-    recommendations_hstu_redis.connection,
+    recommendations_sasrec_redis.connection,
+    recommendations_lfm_redis.connection,
     listen_history_redis.connection,
-    lightfm_i2i_recommender,
-    app.config["EMBEDDINGS_PATH"],
+    random_recommender,
+    app.config["EMBEDDINGS_PATH"]
 )
 
 parser = reqparse.RequestParser()
@@ -117,12 +113,12 @@ class NextTrack(Resource):
         args = parser.parse_args()
         persist_user_listen_history(user, args.track, args.time)
 
-        treatment = Experiments.HSTU_EMBEDDINGS.assign(user)
+        treatment = Experiments.SASREC_HYBRID.assign(user)
 
         if treatment == Treatment.C:
             recommender = sasrec_i2i_recommender
         elif treatment == Treatment.T1:
-            recommender = embeddings_hstu_recommender
+            recommender = embedding_hybrid_recommender
         else:
             recommender = random_recommender
 
